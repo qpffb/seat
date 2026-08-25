@@ -1,282 +1,192 @@
+import time
 import streamlit as st
-import streamlit.components.v1 as components
 
-st.set_page_config(page_title="WASD 스네이크 게임", page_icon="🐍", layout="centered")
+st.set_page_config(page_title="온라인 1대1 오목 대전", page_icon="⚪", layout="centered")
 
-st.title("🐍 WASD 스네이크 게임")
+st.title("⚪⚫ 온라인 1대1 오목 대전")
 st.caption(
-    "WASD 키 또는 방향키를 사용하여 뱀을 조종하세요! 초록색 먹이를 먹으면 몸집이 길어지고 점수가 올라갑니다."
+    "두 대의 기기(노트북/모바일)에서 접속하여 실시간으로 오목을 즐겨보세요!"
 )
 
-# HTML5 Canvas + JavaScript Snake Game Implementation with WASD Support
-html_code = """
-<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        body {
-            background-color: #0e1117;
-            color: #ffffff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            margin: 0;
-            padding: 10px;
-        }
-        .game-container {
-            position: relative;
-            text-align: center;
-        }
-        #gameCanvas {
-            background-color: #1a1c23;
-            border: 3px solid #4CAF50;
-            border-radius: 10px;
-            box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.5);
-        }
-        .stats {
-            display: flex;
-            justify-content: space-between;
-            width: 400px;
-            margin-bottom: 10px;
-            font-size: 18px;
-            font-weight: bold;
-        }
-        .controls-hint {
-            margin-top: 12px;
-            color: #b0b0b0;
-            font-size: 14px;
-            line-height: 1.5;
-        }
-        .key-badge {
-            background-color: #333644;
-            color: #4CAF50;
-            padding: 2px 8px;
-            border-radius: 4px;
-            border: 1px solid #4CAF50;
-            font-family: monospace;
-            font-weight: bold;
-        }
-        .btn-reset {
-            margin-top: 15px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            font-size: 16px;
-            font-weight: bold;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .btn-reset:hover {
-            background-color: #45a049;
-        }
-    </style>
-</head>
-<body>
+BOARD_SIZE = 15
 
-<div class="game-container">
-    <div class="stats">
-        <div>현재 점수: <span id="score" style="color: #4CAF50;">0</span></div>
-        <div>최고 점수: <span id="highScore" style="color: #FFD700;">0</span></div>
-    </div>
-    <canvas id="gameCanvas" width="400" height="400"></canvas>
-    <br>
-    <button class="btn-reset" onclick="resetGame()">🎮 다시 시작 (R)</button>
-    <div class="controls-hint">
-        조작법: <span class="key-badge">W</span> 위 / <span class="key-badge">A</span> 왼쪽 / <span class="key-badge">S</span> 아래 / <span class="key-badge">D</span> 오른쪽<br>
-        (방향키 <span class="key-badge">↑</span> <span class="key-badge">←</span> <span class="key-badge">↓</span> <span class="key-badge">→</span> 로도 조작 가능)
-    </div>
-</div>
 
-<script>
-    const canvas = document.getElementById("gameCanvas");
-    const ctx = canvas.getContext("2d");
-
-    const gridSize = 20;
-    const tileCount = canvas.width / gridSize;
-
-    let score = 0;
-    let highScore = 0;
-    let dx = gridSize;
-    let dy = 0;
-    let snake = [
-        { x: 160, y: 200 },
-        { x: 140, y: 200 },
-        { x: 120, y: 200 }
-    ];
-    let food = { x: 0, y: 0 };
-    let gameInterval = null;
-    let isGameOver = false;
-    let changingDirection = false;
-
-    function main() {
-        if (isGameOver) return;
-        changingDirection = false;
-        clearCanvas();
-        drawFood();
-        advanceSnake();
-        drawSnake();
+# 서버 공용 데이터 저장소 (모든 연결된 사용자가 실시간 공유)
+@st.cache_resource
+def get_game_store():
+    return {
+        "board": [[0 for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)],
+        "turn": 1,  # 1: 흑돌(Black), 2: 백돌(White)
+        "players": {"black": None, "white": None},
+        "last_move": None,
+        "winner": 0,  # 0: 진행중, 1: 흑 승, 2: 백 승, 3: 무승부
+        "move_count": 0,
     }
 
-    function clearCanvas() {
-        ctx.fillStyle = "#1a1c23";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        ctx.strokeStyle = "#252833";
-        ctx.lineWidth = 0.5;
-        for (let i = 0; i < canvas.width; i += gridSize) {
-            ctx.beginPath();
-            ctx.moveTo(i, 0);
-            ctx.lineTo(i, canvas.height);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(0, i);
-            ctx.lineTo(canvas.width, i);
-            ctx.stroke();
-        }
-    }
 
-    function drawSnake() {
-        snake.forEach((part, index) => {
-            if (index === 0) {
-                ctx.fillStyle = "#4CAF50";
-            } else {
-                ctx.fillStyle = "#81C784";
-            }
-            ctx.fillRect(part.x, part.y, gridSize - 1, gridSize - 1);
-        });
-    }
+game = get_game_store()
 
-    function advanceSnake() {
-        const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+# 세션 구분 ID 생성
+if "user_id" not in st.session_state:
+    st.session_state.user_id = str(time.time())
 
-        if (head.x < 0 || head.x >= canvas.width || head.y < 0 || head.y >= canvas.height) {
-            handleGameOver();
-            return;
-        }
 
-        for (let i = 0; i < snake.length; i++) {
-            if (head.x === snake[i].x && head.y === snake[i].y) {
-                handleGameOver();
-                return;
-            }
-        }
+# 5목 승리 판정 함수
+def check_win(board, r, c, player):
+    directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+    for dr, dc in directions:
+        count = 1
+        # 정방향 탐색
+        nr, nc = r + dr, c + dc
+        while (
+            0 <= nr < BOARD_SIZE
+            and 0 <= nc < BOARD_SIZE
+            and board[nr][nc] == player
+        ):
+            count += 1
+            nr += dr
+            nc += dc
+        # 역방향 탐색
+        nr, nc = r - dr, c - dc
+        while (
+            0 <= nr < BOARD_SIZE
+            and 0 <= nc < BOARD_SIZE
+            and board[nr][nc] == player
+        ):
+            count += 1
+            nr -= dr
+            nc -= dc
+        if count >= 5:
+            return True
+    return False
 
-        snake.unshift(head);
 
-        const hasEaten = snake[0].x === food.x && snake[0].y === food.y;
-        if (hasEaten) {
-            score += 10;
-            document.getElementById("score").innerText = score;
-            if (score > highScore) {
-                highScore = score;
-                document.getElementById("highScore").innerText = highScore;
-            }
-            generateFood();
-        } else {
-            snake.pop();
-        }
-    }
+# 플레이어 역할 확인
+user_role = None
+if game["players"]["black"] == st.session_state.user_id:
+    user_role = 1
+elif game["players"]["white"] == st.session_state.user_id:
+    user_role = 2
 
-    function generateFood() {
-        food.x = Math.floor(Math.random() * tileCount) * gridSize;
-        food.y = Math.floor(Math.random() * tileCount) * gridSize;
+# 참가 신청 사이드바
+st.sidebar.header("🎮 대전 참가")
+if user_role is None:
+    st.sidebar.write("역할을 선택하여 게임에 참가하세요:")
+    col_b, col_w = st.sidebar.columns(2)
+    with col_b:
+        if game["players"]["black"] is None:
+            if st.button("⚫ 흑돌 참가"):
+                game["players"]["black"] = st.session_state.user_id
+                st.rerun()
+        else:
+            st.sidebar.caption("⚫ 흑돌: (참가완료)")
 
-        snake.forEach(part => {
-            if (part.x === food.x && part.y === food.y) {
-                generateFood();
-            }
-        });
-    }
+    with col_w:
+        if game["players"]["white"] is None:
+            if st.button("⚪ 백돌 참가"):
+                game["players"]["white"] = st.session_state.user_id
+                st.rerun()
+        else:
+            st.sidebar.caption("⚪ 백돌: (참가완료)")
+else:
+    role_str = "⚫ 흑돌 (선공)" if user_role == 1 else "⚪ 백돌 (후공)"
+    st.sidebar.success(f"당신은 **{role_str}** 입니다.")
 
-    function drawFood() {
-        ctx.fillStyle = "#FF5252";
-        ctx.beginPath();
-        ctx.arc(food.x + gridSize / 2, food.y + gridSize / 2, gridSize / 2 - 2, 0, Math.PI * 2);
-        ctx.fill();
-    }
+# 게임 리셋 버튼
+if st.sidebar.button("🔄 게임 초기화 / 방 새로고침", use_container_width=True):
+    game["board"] = [[0 for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+    game["turn"] = 1
+    game["players"] = {"black": None, "white": None}
+    game["last_move"] = None
+    game["winner"] = 0
+    game["move_count"] = 0
+    st.rerun()
 
-    function handleGameOver() {
-        isGameOver = true;
-        clearInterval(gameInterval);
-        
-        ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+# 상단 대전 상태 정보 표시
+st.divider()
+status_col1, status_col2 = st.columns(2)
 
-        ctx.fillStyle = "#FF5252";
-        ctx.font = "bold 30px 'Segoe UI', sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 10);
+with status_col1:
+    if game["winner"] == 0:
+        if game["turn"] == 1:
+            st.subheader("현재 턴: ⚫ 흑돌")
+        else:
+            st.subheader("현재 턴: ⚪ 백돌")
+    elif game["winner"] == 1:
+        st.success("🎉 ⚫ 흑돌 승리!")
+    elif game["winner"] == 2:
+        st.success("🎉 ⚪ 백돌 승리!")
+    elif game["winner"] == 3:
+        st.warning("🤝 무승부!")
 
-        ctx.fillStyle = "#FFFFFF";
-        ctx.font = "16px 'Segoe UI', sans-serif";
-        ctx.fillText("최종 점수: " + score + "점", canvas.width / 2, canvas.height / 2 + 25);
-        ctx.fillText("'R' 키나 아래 버튼을 눌러 다시 시작", canvas.width / 2, canvas.height / 2 + 55);
-    }
+with status_col2:
+    ready_b = "✅ 준비완료" if game["players"]["black"] else "⏳ 대기중..."
+    ready_w = "✅ 준비완료" if game["players"]["white"] else "⏳ 대기중..."
+    st.write(f"⚫ 흑돌 플레이어: {ready_b}")
+    st.write(f"⚪ 백돌 플레이어: {ready_w}")
 
-    function changeDirection(event) {
-        const key = event.key.toLowerCase();
-        
-        if (key === 'r' && isGameOver) {
-            resetGame();
-            return;
-        }
+# 내 턴인지 체크
+is_my_turn = (
+    (user_role == game["turn"])
+    and (game["winner"] == 0)
+    and (game["players"]["black"] is not None)
+    and (game["players"]["white"] is not None)
+)
 
-        if (changingDirection) return;
+if not is_my_turn and game["winner"] == 0:
+    if user_role is None:
+        st.info(
+            "💡 관전 중입니다. 대전에 참가하시려면 좌측 사이드바에서 돌을 선택하세요."
+        )
+    elif game["players"]["black"] is None or game["players"]["white"] is None:
+        st.info("💡 상대방이 들어오기를 기다리는 중입니다...")
+    else:
+        st.info("⏳ 상대방이 돌을 두기를 기다리는 중입니다...")
 
-        const goingUp = dy === -gridSize;
-        const goingDown = dy === gridSize;
-        const goingRight = dx === gridSize;
-        const goingLeft = dx === -gridSize;
+# 15x15 오목 바둑판
+grid_container = st.container()
 
-        if ((key === 'a' || key === 'arrowleft') && !goingRight) {
-            dx = -gridSize;
-            dy = 0;
-            changingDirection = true;
-        }
-        if ((key === 'w' || key === 'arrowup') && !goingDown) {
-            dx = 0;
-            dy = -gridSize;
-            changingDirection = true;
-        }
-        if ((key === 'd' || key === 'arrowright') && !goingLeft) {
-            dx = gridSize;
-            dy = 0;
-            changingDirection = true;
-        }
-        if ((key === 's' || key === 'arrowdown') && !goingUp) {
-            dx = 0;
-            dy = gridSize;
-            changingDirection = true;
-        }
-    }
+for r in range(BOARD_SIZE):
+    cols = grid_container.columns(BOARD_SIZE)
+    for c in range(BOARD_SIZE):
+        cell_val = game["board"][r][c]
 
-    function resetGame() {
-        score = 0;
-        document.getElementById("score").innerText = score;
-        dx = gridSize;
-        dy = 0;
-        snake = [
-            { x: 160, y: 200 },
-            { x: 140, y: 200 },
-            { x: 120, y: 200 }
-        ];
-        isGameOver = false;
-        generateFood();
-        if (gameInterval) clearInterval(gameInterval);
-        gameInterval = setInterval(main, 100);
-    }
+        if cell_val == 1:
+            label = "⚫"
+        elif cell_val == 2:
+            label = "⚪"
+        else:
+            label = " "
 
-    document.addEventListener("keydown", changeDirection);
+        # 착수된 가장 마지막 수 강조
+        if game["last_move"] == (r, c):
+            if cell_val == 1:
+                label = "⬛"
+            elif cell_val == 2:
+                label = "⬜"
 
-    generateFood();
-    gameInterval = setInterval(main, 100);
-</script>
-</body>
-</html>
-"""
+        can_click = is_my_turn and (cell_val == 0)
 
-components.html(html_code, height=580)
+        if cols[c].button(
+            label,
+            key=f"cell_{r}_{c}",
+            disabled=not can_click,
+            use_container_width=True,
+        ):
+            game["board"][r][c] = user_role
+            game["last_move"] = (r, c)
+            game["move_count"] += 1
+
+            if check_win(game["board"], r, c, user_role):
+                game["winner"] = user_role
+            elif game["move_count"] >= BOARD_SIZE * BOARD_SIZE:
+                game["winner"] = 3
+            else:
+                game["turn"] = 2 if user_role == 1 else 1
+
+            st.rerun()
+
+# 상대방 턴일 때 자동 폴링 (2초마다 화면 새로고침하여 수 확인)
+if not is_my_turn and game["winner"] == 0:
+    time.sleep(2)
+    st.rerun()
